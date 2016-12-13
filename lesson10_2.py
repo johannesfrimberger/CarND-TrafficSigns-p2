@@ -93,7 +93,7 @@ optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)\
 
 
 # Initializing the variables
-init = tf.initialize_all_variables()
+init = tf.global_variables_initializer()
 
 # Launch the graph
 with tf.Session() as sess:
@@ -106,6 +106,7 @@ with tf.Session() as sess:
             batch_x, batch_y = mnist.train.next_batch(batch_size)
             # Run optimization op (backprop) and cost op (to get loss value)
             sess.run(optimizer, feed_dict={x: batch_x, y: batch_y})
+
         # Display logs per epoch step
         c = sess.run(cost, feed_dict={x: batch_x, y: batch_y})
         print("Epoch:", '%04d' % (epoch+1), "cost=", "{:.9f}".format(c))
@@ -118,4 +119,3 @@ with tf.Session() as sess:
     print(
         "Accuracy:",
         accuracy.eval({x: mnist.test.images, y: mnist.test.labels}))
-

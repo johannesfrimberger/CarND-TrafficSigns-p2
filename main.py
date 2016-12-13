@@ -4,8 +4,11 @@ import math
 import cv2
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib.layers import flatten
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+
+import random
 
 def visualize_data(X_train, y_train, n_classes):
     ### Data exploration visualization goes here.
@@ -33,42 +36,194 @@ def visualize_data(X_train, y_train, n_classes):
                 break
     plt.show()
 
-def normalizeData(input, coords):
+def centerImage(image, coords):
+    """
+
+    :param image: image to center
+    :param coords: coords of bounding box
+    :return: centered image
+    """
+    pt1 = (coords[0], coords[1])
+    pt2 = (coords[2], coords[1])
+    pt3 = (coords[2], coords[3])
+    pt4 = (coords[0], coords[3])
+    pts1 = np.float32([pt1, pt2, pt3, pt4])
+    pts2 = np.float32([[0, 0], [32, 0], [32, 32], [0, 32]])
+
+    M = cv2.getPerspectiveTransform(pts1, pts2)
+    return cv2.warpPerspective(image, M, (32, 32))
+
+def normalizeData(input, coords, rng = random):
     """
     Convert rgb to yuv color space and normalize y channel
     :param input: np Array of images in rgb color space
     :param coords: np Array of bounding boxes for the traffic sign
+    :param rng: random number generator used. By default a new rng is initialized
     :return: np Array of images in yuv color space
     """
-    output = np.zeros_like(input)
-    newFeatures = np.zeros_like(input)
-    for i, item in enumerate(input):
+    n_newFeatures = 1
+    newFeatures = np.zeros((input.shape[0] * n_newFeatures, input.shape[1], input.shape[2], input.shape[3]))
 
-        xTop = coords[i, 0]
-        yTop = coords[i, 1]
-        xBot = coords[i, 2]
-        yBot = coords[i, 3]
-        imSize = output[i, :].shape
+    for i in tqdm(range(input.shape[0]), unit="Frames"):
 
-        pts1 = np.float32([[xTop, yTop], [xBot, yTop], [xBot, yBot], [xTop, yTop]])
-        pts2 = np.float32([[0, 0], [imSize[0], 0], [0, imSize[1]], [imSize[0], imSize[1]]])
-
-        M = cv2.getPerspectiveTransform(pts1, pts2)
-
-        newFeatures[i, :] = cv2.warpPerspective(item, M, (imSize[0], imSize[1]))
+        indStart = i
+        item = input[i, :]
 
         # Convert to yuv color space
-        output[i, :] = cv2.cvtColor(item, cv2.COLOR_BGR2YUV)
+        newFeatures[indStart, :] = cv2.cvtColor(item, cv2.COLOR_BGR2YUV)
         # Normalize y channel
-        output[i, :, :, 0] = cv2.equalizeHist(output[i, :, :, 0])
+        newFeatures[indStart, :, :, 0] = cv2.equalizeHist(newFeatures[indStart, :, :, 0].astype(input.dtype))
 
-    # Convert image from uint8 to float
-    output = output.astype(float) / 255.0
+        # Add centered image
+        #newFeatures[indStart, :] = centerImage(newFeatures[indStart, :], coords[i, :])
+
+        # Convert image from uint8 to float representation
+        newFeatures[indStart:indStart+n_newFeatures, :] = newFeatures[indStart:indStart+n_newFeatures, :].astype(float) / 255.0
+
+    return newFeatures
+
+def generate_validation_set(x, y, pVal = 0.7, rng=random):
+    """
+
+    :param x:
+    :param y:
+    :param pVal:
+    :param rng:
+    :return:
+    """
+    nTrainingSamples = x.shape[0]
+    nTrainingSamplesNew = int(nTrainingSamples * pVal)
+
+    selection = list(range(nTrainingSamples))
+    rng.shuffle(selection)
+
+    selectionTraining = selection[0:nTrainingSamplesNew]
+    selectionValidation = selection[nTrainingSamplesNew:]
+
+    x_Train = x[selectionTraining, :]
+    y_Train = y[selectionTraining, :]
+
+    x_Val = x[selectionValidation, :]
+    y_Val = y[selectionValidation, :]
+
+    return [x_Train, y_Train, x_Val, y_Val]
+
+def splitIntoBatches(batch_size, features, labels):
+    """
+    Create batches of features and labels
+    :param batch_size: The batch size
+    :param features: List of features
+    :param labels: List of labels
+    :return: Batches of (Features, Labels)
+    """
+    assert len(features) == len(labels)
+    outout_batches = []
+
+    sample_size = len(features)
+    for start_i in range(0, sample_size, batch_size):
+        end_i = start_i + batch_size
+        batch = [features[start_i:end_i], labels[start_i:end_i]]
+        outout_batches.append(batch)
+
+    return outout_batches
+
+def generateModel(image_shape, n_classes, X_train, y_train, X_valid, y_valid, X_test, y_test):
+
+    # Pad 0s to 32x32. Centers the digit further.
+    # Add 2 rows/columns on each side for height and width dimensions.
+    x = tf.placeholder("float", [None, image_shape[0], image_shape[1], 3])
+    y = tf.placeholder("float", [None, n_classes])
+
+    #x = tf.pad(x, [[0, 0], [2, 2], [2, 2], [0, 0]], mode="CONSTANT")
+
+    conv1_W = tf.Variable(tf.truncated_normal(shape=(5, 5, 3, 6)))
+    conv1_b = tf.Variable(tf.zeros(6))
+    conv1 = tf.nn.conv2d(x, conv1_W, strides=[1, 1, 1, 1], padding='VALID') + conv1_b
+
+    conv1 = tf.nn.relu(conv1)
+    conv1 = tf.nn.max_pool(conv1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='VALID')
+
+    # 10x10x16
+    conv2_W = tf.Variable(tf.truncated_normal(shape=(5, 5, 6, 16)))
+    conv2_b = tf.Variable(tf.zeros(16))
+    conv2 = tf.nn.conv2d(conv1, conv2_W, strides=[1, 1, 1, 1], padding='VALID') + conv2_b
+
+    conv2 = tf.nn.relu(conv2)
+
+    # 5x5x16
+    conv2 = tf.nn.max_pool(conv2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='VALID')
+
+    # Flatten
+    fc1 = flatten(conv2)
+    # (5 * 5 * 16, 120)
+    fc1_shape = (fc1.get_shape().as_list()[-1], 120)
+
+    fc1_W = tf.Variable(tf.truncated_normal(shape=(fc1_shape)))
+    fc1_b = tf.Variable(tf.zeros(120))
+    fc1 = tf.matmul(fc1, fc1_W) + fc1_b
+    fc1 = tf.nn.relu(fc1)
+
+    fc2_W = tf.Variable(tf.truncated_normal(shape=(120, n_classes)))
+    fc2_b = tf.Variable(tf.zeros(n_classes))
+
+    fc2 = tf.matmul(fc1, fc2_W) + fc2_b
+
+    loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(fc2, y))
+    #opt = tf.train.AdamOptimizer()
+    #train_op = opt.minimize(loss_op)
+    #correct_prediction = tf.equal(tf.argmax(fc2, 1), tf.argmax(y, 1))
+    #accuracy_op = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+    learning_rate = 0.001
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate) \
+        .minimize(loss_op)
+
+    EPOCHS = 10
+    BATCH_SIZE = 50
+
+    # Initializing the variables
+    init = tf.global_variables_initializer()
+
+    # Launch the graph
+    with tf.Session() as sess:
+        sess.run(init)
+        batch = splitIntoBatches(BATCH_SIZE, X_train, y_train)
+        batchVal = splitIntoBatches(100, X_valid, y_valid)
+        batchTest = splitIntoBatches(100, X_test, y_test)
+
+        # Training cycle
+        for epoch in tqdm(range(EPOCHS)):
+            # Loop over all batches
+            for data, label in tqdm(batch):
+                loss = sess.run(optimizer, feed_dict={x: data, y: label})
+
+            # Display logs per epoch step
+            c = sess.run(loss_op, feed_dict={x: X_train, y: y_train})
+            print("Epoch:", '%04d' % (epoch + 1), "cost=", "{:.9f}".format(c))
+
+        print("Optimization Finished!")
+
+        # Test model
+        correct_prediction = tf.equal(tf.argmax(fc2, 1), tf.argmax(y, 1))
+        # Calculate accuracy
+        accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+        print(
+            "Accuracy:",
+            accuracy.eval({x: X_test, y: y_test}))
+
+def one_hot(input, n_classes):
+    """
+
+    :param input:
+    :param n_classes:
+    :return:
+    """
+
+    output = np.zeros((input.shape[0], n_classes), dtype=int)
+    for i, el in enumerate(input):
+        output[i, el] = 1
 
     return output
-
-def generate_validation_set(training_set, test_set):
-    return 0
 
 def main():
     # Fill this in based on where you saved the training and testing data
@@ -102,32 +257,20 @@ def main():
     print("Image data shape =", image_shape)
     print("Number of classes =", n_classes)
 
-    cv2.namedWindow('image', cv2.WINDOW_NORMAL)
-
-    for item in X_train:
-        image = cv2.cvtColor(item, cv2.COLOR_BGR2RGB)
-        pt1 = (c_train[0, 0], c_train[0, 1])
-        pt3 = (c_train[0, 2], c_train[0, 3])
-        pt4 = (c_train[0, 0], c_train[0, 3])
-        pt2 = (c_train[0, 2], c_train[0, 1])
-
-        pts1 = np.float32([pt1, pt2, pt3, pt4])
-        pts2 = np.float32([[0, 0], [28, 0], [28, 28], [0, 28]])
-
-        M = cv2.getPerspectiveTransform(pts1, pts2)
-        image = cv2.warpPerspective(image, M, (28, 28))
-
-        cv2.imshow("image", cv2.resize(image, (500, 500)))
-        break
-
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # visualize_data(X_train, y_train, n_classes)
 
     # Normalize and pre process data
-    #X_train = normalizeData(X_train, c_train)
-    #X_test = normalizeData(X_test, c_test)
+    rng = random
+    rng.seed(100)
+    X_train = normalizeData(X_train, c_train, rng)
+    X_test = normalizeData(X_test, c_test, rng)
 
-    #visualize_data(X_train, y_train, n_classes)
+    y_train = one_hot(y_train, n_classes)
+    y_test = one_hot(y_test, n_classes)
+
+    X_train, y_train, X_valid, y_valid = generate_validation_set(X_train, y_train, rng=rng)
+
+    fc2 = generateModel(image_shape, n_classes, X_train, y_train, X_valid, y_valid, X_test, y_test)
 
 if __name__ == "__main__":
     main()
