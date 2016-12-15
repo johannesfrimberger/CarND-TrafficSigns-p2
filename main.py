@@ -1,221 +1,16 @@
-# Load the modules
+# Load modules
 import pickle
-import math
-import cv2
 import numpy as np
+import cv2
+from sklearn.model_selection import train_test_split
 import tensorflow as tf
-from tensorflow.contrib.layers import flatten
 from tqdm import tqdm
-import matplotlib.pyplot as plt
-
-import random
-
-def visualize_data(X_train, y_train, n_classes):
-    ### Data exploration visualization goes here.
-    ### Feel free to use as many code cells as needed.
-
-    #fig = plt.figure()
-    #n, bins, patches = plt.hist(y_train, n_classes)
-    #plt.xlabel('Traffic Sign Classes')
-    #plt.ylabel('occurrences')
-    #plt.show()
-
-    fig = plt.figure()
-    fig.suptitle('Overview Traffic Signs', fontsize=16)
-
-    pltRows = 5
-    pltCols = (n_classes / pltRows) + 1
-
-    for el in range(n_classes):
-        for i in range(0, len(y_train)):
-            if (y_train[i] == el):
-                plt.subplot(pltRows, pltCols, el + 1)
-                fig = plt.imshow(X_train[i, :, :, :], interpolation='nearest')
-                fig.axes.get_xaxis().set_visible(False)
-                fig.axes.get_yaxis().set_visible(False)
-                break
-    plt.show()
-
-def centerImage(image, coords):
-    """
-
-    :param image: image to center
-    :param coords: coords of bounding box
-    :return: centered image
-    """
-    pt1 = (coords[0], coords[1])
-    pt2 = (coords[2], coords[1])
-    pt3 = (coords[2], coords[3])
-    pt4 = (coords[0], coords[3])
-    pts1 = np.float32([pt1, pt2, pt3, pt4])
-    pts2 = np.float32([[0, 0], [32, 0], [32, 32], [0, 32]])
-
-    M = cv2.getPerspectiveTransform(pts1, pts2)
-    return cv2.warpPerspective(image, M, (32, 32))
-
-def normalizeData(input, coords, rng = random):
-    """
-    Convert rgb to yuv color space and normalize y channel
-    :param input: np Array of images in rgb color space
-    :param coords: np Array of bounding boxes for the traffic sign
-    :param rng: random number generator used. By default a new rng is initialized
-    :return: np Array of images in yuv color space
-    """
-    n_newFeatures = 1
-    newFeatures = np.zeros((input.shape[0] * n_newFeatures, input.shape[1], input.shape[2], input.shape[3]))
-
-    for i in tqdm(range(input.shape[0]), unit="Frames"):
-
-        indStart = i
-        item = input[i, :]
-
-        # Convert to yuv color space
-        newFeatures[indStart, :] = cv2.cvtColor(item, cv2.COLOR_BGR2YUV)
-        # Normalize y channel
-        newFeatures[indStart, :, :, 0] = cv2.equalizeHist(newFeatures[indStart, :, :, 0].astype(input.dtype))
-
-        # Add centered image
-        #newFeatures[indStart, :] = centerImage(newFeatures[indStart, :], coords[i, :])
-
-        # Convert image from uint8 to float representation
-        newFeatures[indStart:indStart+n_newFeatures, :] = newFeatures[indStart:indStart+n_newFeatures, :].astype(float) / 255.0
-
-    return newFeatures
-
-def generate_validation_set(x, y, pVal = 0.7, rng=random):
-    """
-
-    :param x:
-    :param y:
-    :param pVal:
-    :param rng:
-    :return:
-    """
-    nTrainingSamples = x.shape[0]
-    nTrainingSamplesNew = int(nTrainingSamples * pVal)
-
-    selection = list(range(nTrainingSamples))
-    rng.shuffle(selection)
-
-    selectionTraining = selection[0:nTrainingSamplesNew]
-    selectionValidation = selection[nTrainingSamplesNew:]
-
-    x_Train = x[selectionTraining, :]
-    y_Train = y[selectionTraining, :]
-
-    x_Val = x[selectionValidation, :]
-    y_Val = y[selectionValidation, :]
-
-    return [x_Train, y_Train, x_Val, y_Val]
-
-def splitIntoBatches(batch_size, features, labels):
-    """
-    Create batches of features and labels
-    :param batch_size: The batch size
-    :param features: List of features
-    :param labels: List of labels
-    :return: Batches of (Features, Labels)
-    """
-    assert len(features) == len(labels)
-    outout_batches = []
-
-    sample_size = len(features)
-    for start_i in range(0, sample_size, batch_size):
-        end_i = start_i + batch_size
-        batch = [features[start_i:end_i], labels[start_i:end_i]]
-        outout_batches.append(batch)
-
-    return outout_batches
-
-def generateModel(image_shape, n_classes, X_train, y_train, X_valid, y_valid, X_test, y_test):
-
-    # Pad 0s to 32x32. Centers the digit further.
-    # Add 2 rows/columns on each side for height and width dimensions.
-    x = tf.placeholder("float", [None, image_shape[0], image_shape[1], 3])
-    y = tf.placeholder("float", [None, n_classes])
-
-    #x = tf.pad(x, [[0, 0], [2, 2], [2, 2], [0, 0]], mode="CONSTANT")
-
-    conv1_W = tf.Variable(tf.truncated_normal(shape=(5, 5, 3, 6)))
-    conv1_b = tf.Variable(tf.zeros(6))
-    conv1 = tf.nn.conv2d(x, conv1_W, strides=[1, 1, 1, 1], padding='VALID') + conv1_b
-
-    conv1 = tf.nn.relu(conv1)
-    conv1 = tf.nn.max_pool(conv1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='VALID')
-
-    # 10x10x16
-    conv2_W = tf.Variable(tf.truncated_normal(shape=(5, 5, 6, 16)))
-    conv2_b = tf.Variable(tf.zeros(16))
-    conv2 = tf.nn.conv2d(conv1, conv2_W, strides=[1, 1, 1, 1], padding='VALID') + conv2_b
-
-    conv2 = tf.nn.relu(conv2)
-
-    # 5x5x16
-    conv2 = tf.nn.max_pool(conv2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='VALID')
-
-    # Flatten
-    fc1 = flatten(conv2)
-    # (5 * 5 * 16, 120)
-    fc1_shape = (fc1.get_shape().as_list()[-1], 120)
-
-    fc1_W = tf.Variable(tf.truncated_normal(shape=(fc1_shape)))
-    fc1_b = tf.Variable(tf.zeros(120))
-    fc1 = tf.matmul(fc1, fc1_W) + fc1_b
-    fc1 = tf.nn.relu(fc1)
-
-    fc2_W = tf.Variable(tf.truncated_normal(shape=(120, n_classes)))
-    fc2_b = tf.Variable(tf.zeros(n_classes))
-
-    fc2 = tf.matmul(fc1, fc2_W) + fc2_b
-
-    loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(fc2, y))
-    #opt = tf.train.AdamOptimizer()
-    #train_op = opt.minimize(loss_op)
-    #correct_prediction = tf.equal(tf.argmax(fc2, 1), tf.argmax(y, 1))
-    #accuracy_op = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-
-    learning_rate = 0.001
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate) \
-        .minimize(loss_op)
-
-    EPOCHS = 10
-    BATCH_SIZE = 50
-
-    # Initializing the variables
-    init = tf.global_variables_initializer()
-
-    # Launch the graph
-    with tf.Session() as sess:
-        sess.run(init)
-        batch = splitIntoBatches(BATCH_SIZE, X_train, y_train)
-        batchVal = splitIntoBatches(100, X_valid, y_valid)
-        batchTest = splitIntoBatches(100, X_test, y_test)
-
-        # Training cycle
-        for epoch in tqdm(range(EPOCHS)):
-            # Loop over all batches
-            for data, label in tqdm(batch):
-                loss = sess.run(optimizer, feed_dict={x: data, y: label})
-
-            # Display logs per epoch step
-            c = sess.run(loss_op, feed_dict={x: X_train, y: y_train})
-            print("Epoch:", '%04d' % (epoch + 1), "cost=", "{:.9f}".format(c))
-
-        print("Optimization Finished!")
-
-        # Test model
-        correct_prediction = tf.equal(tf.argmax(fc2, 1), tf.argmax(y, 1))
-        # Calculate accuracy
-        accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
-        print(
-            "Accuracy:",
-            accuracy.eval({x: X_test, y: y_test}))
 
 def one_hot(input, n_classes):
     """
-
-    :param input:
-    :param n_classes:
+    Convert input arrey of labels into 2d array of one-hot encoded labels
+    :param input: np array of labels
+    :param n_classes: number of classes
     :return:
     """
 
@@ -225,7 +20,83 @@ def one_hot(input, n_classes):
 
     return output
 
-def main():
+def convert_to_yuv(input):
+    """
+
+    :param input:
+    :return:
+    """
+    yuv = cv2.cvtColor(input, cv2.COLOR_RGB2YUV)
+    yuv[:, :, 0] = cv2.equalizeHist(yuv[:, :, 0])
+    yuvNormalized = cv2.normalize(yuv.astype('float'), None, 0.0, 1.0, cv2.NORM_MINMAX) - 0.5
+
+    return yuvNormalized
+
+def preprocess_inputs(input):
+    """
+
+    :param input:
+    :return:
+    """
+    output = np.zeros_like(input)
+
+    for ind in range(input.shape[0]):
+        output[ind, :] = convert_to_yuv(input[ind, :])
+
+    return output
+
+def generate_network(image_shape, n_classes):
+
+    n_input = image_shape[0] * image_shape[1]
+    n_hidden_layer = 512
+    n_hidden_layer2 = 256
+
+    weights = {
+        'hidden_layer1': tf.Variable(tf.random_normal([n_input, n_hidden_layer])),
+        'hidden_layer2': tf.Variable(tf.random_normal([n_hidden_layer, n_hidden_layer2])),
+        'out': tf.Variable(tf.random_normal([n_hidden_layer2, n_classes]))
+    }
+    biases = {
+        'hidden_layer1': tf.Variable(tf.random_normal([n_hidden_layer])),
+        'hidden_layer2': tf.Variable(tf.random_normal([n_hidden_layer2])),
+        'out': tf.Variable(tf.random_normal([n_classes]))
+    }
+
+    # Dataset consists of 32x32x3 yuv images
+    x = tf.placeholder(tf.float32, (None, image_shape[0], image_shape[1], 1))
+    # Classify over 43 classes
+    y = tf.placeholder(tf.float32, (None, n_classes))
+
+    # ToDO: Reshape to vector as long as CNN is not used
+    x_flat = tf.reshape(x, [-1, image_shape[0] * image_shape[1]])
+
+    fc_layer1 = tf.add(tf.matmul(x_flat, weights['hidden_layer1']), biases['hidden_layer1'])
+    fc_layer1 = tf.nn.relu(fc_layer1)
+
+    fc_layer2 = tf.add(tf.matmul(fc_layer1, weights['hidden_layer2']), biases['hidden_layer2'])
+    fc_layer2 = tf.nn.relu(fc_layer2)
+
+    # Output layer with linear activation
+    logits = tf.add(tf.matmul(fc_layer2, weights['out']), biases['out'])
+
+    # Define loss and optimizer
+    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, y))
+
+    prediction = tf.nn.softmax(logits)
+    # Determine if the predictions are correct
+    is_correct_prediction = tf.equal(tf.argmax(prediction, 1), tf.argmax(y, 1))
+    # Calculate the accuracy of the predictions
+    accuracy = tf.reduce_mean(tf.cast(is_correct_prediction, tf.float32))
+
+    return cost, accuracy, x, y
+
+def get_batch(features, labels, batch_size, pos):
+    startPos = pos * batch_size
+    endPos = (pos+1) * batch_size
+    return features[startPos:endPos, :], labels[startPos:endPos, :]
+
+if __name__ == "__main__":
+
     # Fill this in based on where you saved the training and testing data
     training_file = 'traffic-signs-data/train.p'
     testing_file = 'traffic-signs-data/test.p'
@@ -235,10 +106,9 @@ def main():
     with open(testing_file, mode='rb') as f:
         test = pickle.load(f)
 
-    X_train, y_train, c_train = train['features'], train['labels'], train['coords']
-    X_test, y_test, c_test = test['features'], test['labels'], train['coords']
-
-    ### To start off let's do a basic data summary.
+    # Unpack training and test data
+    X_train, y_train = train['features'], train['labels']
+    X_test, y_test = test['features'], test['labels']
 
     # Number of training examples
     n_train = X_train.shape[0]
@@ -257,20 +127,57 @@ def main():
     print("Image data shape =", image_shape)
     print("Number of classes =", n_classes)
 
-    # visualize_data(X_train, y_train, n_classes)
+    # Generate one-hot encoding for lables
+    Y_train = one_hot(y_train, n_classes)
+    Y_test = one_hot(y_test, n_classes)
 
-    # Normalize and pre process data
-    rng = random
-    rng.seed(100)
-    X_train = normalizeData(X_train, c_train, rng)
-    X_test = normalizeData(X_test, c_test, rng)
+    # Normalize data
+    X_train = preprocess_inputs(X_train)
+    X_test = preprocess_inputs(X_test)
 
-    y_train = one_hot(y_train, n_classes)
-    y_test = one_hot(y_test, n_classes)
+    # Drop color (u,v) channel ToDo: Reactivate color information and use CNN
+    X_train = X_train[:, :, :, 0]
+    X_test = X_test[:, :, :, 0]
+    X_train = X_train[:, :, :, np.newaxis]
+    X_test = X_test[:, :, :, np.newaxis]
 
-    X_train, y_train, X_valid, y_valid = generate_validation_set(X_train, y_train, rng=rng)
+    # Split training set into training and validation set
+    X_train, X_val, y_train, y_val = train_test_split(X_train, Y_train, test_size=0.2, random_state=42)
 
-    fc2 = generateModel(image_shape, n_classes, X_train, y_train, X_valid, y_valid, X_test, y_test)
+    # Update n_train after split
+    n_train = X_train.shape[0]
 
-if __name__ == "__main__":
-    main()
+    # Optimizer
+    learning_rate = 0.0001
+    training_epochs = 20
+    batch_size = 100
+    display_step = 1
+
+    cost, accuracy, x, y = generate_network(image_shape, n_classes)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate).minimize(cost)
+
+    # Initializing the variables
+    init = tf.global_variables_initializer()
+
+    # Add single element ToDo: Better use rounding
+    total_batch = int(n_train / batch_size) + 1
+
+    # Launch the graph
+    with tf.Session() as sess:
+        sess.run(init)
+        # Training cycle
+        for epoch in range(training_epochs):
+            for i in range(total_batch):
+                batch_x, batch_y = get_batch(X_train, y_train, batch_size, i)
+                sess.run(optimizer, feed_dict={x: batch_x, y: batch_y})
+                c = sess.run(cost, feed_dict={x: batch_x, y: batch_y})
+                #print("Cost=", "{:.9f}".format(c))
+
+            c = sess.run(cost, feed_dict={x: X_train, y: y_train})
+            print("Test Cost=", "{:.9f}".format(c))
+            c = sess.run(cost, feed_dict={x: X_val, y: y_val})
+            print("Validation Cost=", "{:.9f}".format(c))
+            validation_accuracy = sess.run(accuracy, feed_dict={x: X_val, y: y_val})
+            print('Validation accuracy at {}'.format(validation_accuracy))
+
+        print("Optimization Finished!")
