@@ -5,6 +5,7 @@ import cv2
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
 import tensorflow as tf
+from tensorflow.contrib.layers import flatten
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import time
@@ -45,7 +46,7 @@ class TrafficSignClassifier:
         self.accuracy = 0
 
         self.dense_layer_1 = 512
-        self.dense_layer_2 = 256
+        self.dense_layer_2 = 512
 
     def train(self):
         """
@@ -59,13 +60,12 @@ class TrafficSignClassifier:
         self.split_training_set()
 
         # Store placeholders for features and labels
-        features = tf.placeholder(tf.float32, [None, 32, 32, 3])
+        features = tf.placeholder(tf.float32, [None, 32, 32, 1])
         labels = tf.placeholder(tf.float32, [None, self.n_classes])
 
         # Reshape features for 1d input
-        features = tf.reshape(features, [-1, self.image_shape[0] * self.image_shape[1]])
-        self.logits = self.create_deep_layer(features)
-
+        cnn = self.create_cnn(features)
+        self.logits = self.create_deep_layer(flatten(cnn))
         self.define_metrics(labels)
 
         # Create an operation that initializes all variables
@@ -138,7 +138,8 @@ class TrafficSignClassifier:
         """
         self.visualize_dataset(self.training_features, self.training_labels)
 
-    def load_data(self, folder):
+    @staticmethod
+    def load_data(folder):
         """
         Load training and test data from given folder and unpack them
         :param folder: Storage folder of training and test data
@@ -210,14 +211,16 @@ class TrafficSignClassifier:
                     break
         plt.show()
 
-    def pre_process_image(self, image):
+    @staticmethod
+    def pre_process_image(image):
         """
         Convert image to YUV space and normalize results
         :return: Normalized image in yuv space
         """
         yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
         yuv = cv2.equalizeHist(yuv[:, :, 0])
-        return (yuv.flatten() / 255. * 2.) - 1.
+        yuv = yuv[:, :, np.newaxis]
+        return (yuv / 255. * 2.) - 1.
 
     def pre_process_features(self):
         """
@@ -255,10 +258,9 @@ class TrafficSignClassifier:
 
     def create_deep_layer(self, dense_input):
 
-        input_size = dense_input.get_shape().as_list()
         # Store layers weight & bias
         weights = {
-            'hidden_layer': tf.Variable(tf.random_normal([input_size[1], self.dense_layer_1])),
+            'hidden_layer': tf.Variable(tf.random_normal([dense_input.get_shape().as_list()[-1], self.dense_layer_1])),
             'hidden_layer2': tf.Variable(tf.random_normal([self.dense_layer_1, self.dense_layer_2])),
             'out': tf.Variable(tf.random_normal([self.dense_layer_2, self.n_classes]))
         }
@@ -278,6 +280,24 @@ class TrafficSignClassifier:
         logits = tf.add(tf.matmul(layer_2, weights['out']), biases['out'])
 
         return logits
+
+    def create_cnn(self, features):
+        """
+
+        :return:
+        """
+
+        x = tf.reshape(features, (-1, 32, 32, 1))
+        # Pad 0s to 36x36. Centers the digit further.
+        # Add 2 rows/columns on each side for height and width dimensions.
+        x = tf.pad(x, [[0, 0], [2, 2], [2, 2], [0, 0]], mode="CONSTANT")
+
+        conv1_W = tf.Variable(tf.truncated_normal(shape=(5, 5, 1, 64)))
+        conv1_b = tf.Variable(tf.zeros(64))
+        conv1 = tf.nn.conv2d(x, conv1_W, strides=[1, 1, 1, 1], padding='VALID') + conv1_b
+        conv1 = tf.nn.relu(conv1)
+
+        return conv1
 
     def define_metrics(self, labels):
         self.prediction = tf.nn.softmax(self.logits)
