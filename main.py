@@ -146,23 +146,27 @@ def main():
     features = tf.placeholder(tf.float32, [None, train_features.shape[1]])
     labels = tf.placeholder(tf.float32, [None, train_labels.shape[1]])
 
-    n_hidden_layer = 256  # layer number of features
+    n_hidden_layer = 512  # layer number of features
 
     # Store layers weight & bias
     weights = {
         'hidden_layer': tf.Variable(tf.random_normal([train_features.shape[1], n_hidden_layer])),
+        'hidden_layer2': tf.Variable(tf.random_normal([n_hidden_layer, n_hidden_layer])),
         'out': tf.Variable(tf.random_normal([n_hidden_layer, n_classes]))
     }
     biases = {
         'hidden_layer': tf.Variable(tf.random_normal([n_hidden_layer])),
+        'hidden_layer2': tf.Variable(tf.random_normal([n_hidden_layer])),
         'out': tf.Variable(tf.random_normal([n_classes]))
     }
 
     # Hidden layer with RELU activation
     layer_1 = tf.add(tf.matmul(features, weights['hidden_layer']), biases['hidden_layer'])
     layer_1 = tf.nn.relu(layer_1)
+    layer_2 = tf.add(tf.matmul(layer_1, weights['hidden_layer2']), biases['hidden_layer2'])
+    layer_2 = tf.nn.relu(layer_2)
     # Output layer with linear activation
-    logits = tf.add(tf.matmul(layer_1, weights['out']), biases['out'])
+    logits = tf.add(tf.matmul(layer_2, weights['out']), biases['out'])
 
     weights = tf.Variable(tf.truncated_normal((features_count, labels_count)))
     biases = tf.Variable(tf.zeros(labels_count))
@@ -209,7 +213,9 @@ def main():
 
     ### DON'T MODIFY ANYTHING BELOW ###
     # Gradient Descent
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
+    #optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
+    opt = tf.train.AdamOptimizer()
+    optimizer = opt.minimize(loss)
 
     # The accuracy measured against the validation set
     validation_accuracy = 0.0
