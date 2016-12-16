@@ -11,6 +11,8 @@ from datetime import timedelta
 import math
 import matplotlib.pyplot as plt
 
+from TrafficSignClassifier import TrafficSignClassifier
+
 def one_hot(input, n_classes):
     """
     Convert input arrey of labels into 2d array of one-hot encoded labels
@@ -80,6 +82,12 @@ def maxpool2d(x, k=2):
         padding='SAME')
 
 def main():
+
+    tsc = TrafficSignClassifier('traffic-signs-data')
+    tsc.train()
+
+    return 0
+
     # Fill this in based on where you saved the training and testing data
     training_file = 'traffic-signs-data/train.p'
     testing_file = 'traffic-signs-data/test.p'

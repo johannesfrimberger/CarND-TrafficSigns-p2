@@ -7,3 +7,5 @@ models
 .idea/workspace.xml
 temp.py
 traffic-signs-data/
+.idea
+__pycache__/
