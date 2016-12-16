@@ -63,7 +63,8 @@ def generate_network():
 def pre_process_image(image):
 
     yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
-    return yuv[:, :, 0].flatten()/255.
+    yuv[:, :, 0] = cv2.equalizeHist(yuv[:, :, 0])
+    return (yuv[:, :, 0].flatten()/255. * 2.) - 1.
 
 def main():
     # Fill this in based on where you saved the training and testing data
@@ -123,7 +124,7 @@ def main():
     train_features, valid_features, train_labels, valid_labels = train_test_split(
         train_features,
         train_labels,
-        test_size=0.05,
+        test_size=0.15,
         random_state=832289)
 
     print('Training features and labels randomized and split')
@@ -142,32 +143,36 @@ def main():
     # labels_count = 43
     labels_count = train_labels.shape[1]
 
-    # print (train_features.shape[0])
-    # print (train_labels.shape[0])
-
     features = tf.placeholder(tf.float32, [None, train_features.shape[1]])
     labels = tf.placeholder(tf.float32, [None, train_labels.shape[1]])
 
-    print(train_features.shape[0])
-    print(train_labels.shape[0])
+    n_hidden_layer = 256  # layer number of features
 
-    # features = tf.placeholder(tf.float32)
-    # labels = tf.placeholder(tf.float32)
+    # Store layers weight & bias
+    weights = {
+        'hidden_layer': tf.Variable(tf.random_normal([train_features.shape[1], n_hidden_layer])),
+        'out': tf.Variable(tf.random_normal([n_hidden_layer, n_classes]))
+    }
+    biases = {
+        'hidden_layer': tf.Variable(tf.random_normal([n_hidden_layer])),
+        'out': tf.Variable(tf.random_normal([n_classes]))
+    }
+
+    # Hidden layer with RELU activation
+    layer_1 = tf.add(tf.matmul(features, weights['hidden_layer']), biases['hidden_layer'])
+    layer_1 = tf.nn.relu(layer_1)
+    # Output layer with linear activation
+    logits = tf.add(tf.matmul(layer_1, weights['out']), biases['out'])
 
     weights = tf.Variable(tf.truncated_normal((features_count, labels_count)))
     biases = tf.Variable(tf.zeros(labels_count))
 
-    print(features)
-    print(labels)
-
     train_dict = {features: train_features, labels: train_labels}
     valid_dict = {features: valid_features, labels: valid_labels}
     test_dict = {features: test_features, labels: test_labels}
-    # train_dict = {features: X_train, labels: y_train}
-    # test_dict = {features: X_test, labels: y_test}
 
     # Linear Function WX + b
-    logits = tf.matmul(features, weights) + biases
+    #logits = tf.matmul(features, weights) + biases
 
     prediction = tf.nn.softmax(logits)
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, labels))
@@ -200,7 +205,7 @@ def main():
     # Parameters
     training_epochs = 100
     batch_size = 20
-    learning_rate = 0.24
+    learning_rate = 0.001
 
     ### DON'T MODIFY ANYTHING BELOW ###
     # Gradient Descent
