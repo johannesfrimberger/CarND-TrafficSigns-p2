@@ -64,7 +64,20 @@ def pre_process_image(image):
 
     yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
     yuv[:, :, 0] = cv2.equalizeHist(yuv[:, :, 0])
-    return (yuv[:, :, 0].flatten()/255. * 2.) - 1.
+    return (yuv/255. * 2.) - 1.
+
+def conv2d(x, W, b, strides=1):
+    x = tf.nn.conv2d(x, W, strides=[1, strides, strides, 1], padding='SAME')
+    x = tf.nn.bias_add(x, b)
+    return tf.nn.tanh(x)
+
+
+def maxpool2d(x, k=2):
+    return tf.nn.max_pool(
+        x,
+        ksize=[1, k, k, 1],
+        strides=[1, k, k, 1],
+        padding='SAME')
 
 def main():
     # Fill this in based on where you saved the training and testing data
@@ -102,6 +115,10 @@ def main():
     test_features = np.array([pre_process_image(X_test[i]) for i in range(len(X_test))],
                              dtype=np.float32)
 
+    print(train_features.shape)
+
+    return 0
+
     ### OHE encoder
 
     # Turn labels into numbers and apply One-Hot Encoding
@@ -137,46 +154,50 @@ def main():
     ### Feel free to use as many code cells as needed.
     import tensorflow as tf
 
-    features_count = train_features.shape[1]
-    # features_count = 3072
+    features = tf.placeholder(tf.float32, [None, 32, 32, 3])
+    labels = tf.placeholder(tf.float32, [None, n_classes])
 
-    # labels_count = 43
-    labels_count = train_labels.shape[1]
+    n_hidden_layer = 128  # layer number of features
 
-    features = tf.placeholder(tf.float32, [None, train_features.shape[1]])
-    labels = tf.placeholder(tf.float32, [None, train_labels.shape[1]])
-
-    n_hidden_layer = 512  # layer number of features
+    layer_width = {
+        'layer_1': 8
+    }
 
     # Store layers weight & bias
     weights = {
-        'hidden_layer': tf.Variable(tf.random_normal([train_features.shape[1], n_hidden_layer])),
+        'layer_1': tf.Variable(tf.truncated_normal([5, 5, 3, layer_width['layer_1']])),
+        'hidden_layer': tf.Variable(tf.random_normal([16*16*8, n_hidden_layer])),
         'hidden_layer2': tf.Variable(tf.random_normal([n_hidden_layer, n_hidden_layer])),
         'out': tf.Variable(tf.random_normal([n_hidden_layer, n_classes]))
     }
     biases = {
+        'layer_1': tf.Variable(tf.zeros(layer_width['layer_1'])),
         'hidden_layer': tf.Variable(tf.random_normal([n_hidden_layer])),
         'hidden_layer2': tf.Variable(tf.random_normal([n_hidden_layer])),
         'out': tf.Variable(tf.random_normal([n_classes]))
     }
 
+    # Layer 1 - 32*32*3 to 16*16*32
+    conv1 = conv2d(features, weights['layer_1'], biases['layer_1'])
+    conv1 = maxpool2d(conv1)
+
+    # Fully connected layer - 4*4*128 to 512
+    # Reshape conv3 output to fit fully connected layer input
+    fc1 = tf.reshape(
+        conv1,
+        [-1, weights['hidden_layer'].get_shape().as_list()[0]])
+
     # Hidden layer with RELU activation
-    layer_1 = tf.add(tf.matmul(features, weights['hidden_layer']), biases['hidden_layer'])
+    layer_1 = tf.add(tf.matmul(fc1, weights['hidden_layer']), biases['hidden_layer'])
     layer_1 = tf.nn.relu(layer_1)
     layer_2 = tf.add(tf.matmul(layer_1, weights['hidden_layer2']), biases['hidden_layer2'])
     layer_2 = tf.nn.relu(layer_2)
     # Output layer with linear activation
     logits = tf.add(tf.matmul(layer_2, weights['out']), biases['out'])
 
-    weights = tf.Variable(tf.truncated_normal((features_count, labels_count)))
-    biases = tf.Variable(tf.zeros(labels_count))
-
     train_dict = {features: train_features, labels: train_labels}
     valid_dict = {features: valid_features, labels: valid_labels}
     test_dict = {features: test_features, labels: test_labels}
-
-    # Linear Function WX + b
-    #logits = tf.matmul(features, weights) + biases
 
     prediction = tf.nn.softmax(logits)
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, labels))
@@ -189,9 +210,11 @@ def main():
     # Test Cases
     with tf.Session() as session:
         session.run(init)
-        session.run(loss, feed_dict=train_dict)
-        session.run(loss, feed_dict=test_dict)
+        session.run(loss, feed_dict=valid_dict)
+        #session.run(loss, feed_dict=test_dict)
         biases_data = session.run(biases)
+
+    #return 0
 
     # Determine if the predictions are correct
     is_correct_prediction = tf.equal(tf.argmax(prediction, 1), tf.argmax(labels, 1))
