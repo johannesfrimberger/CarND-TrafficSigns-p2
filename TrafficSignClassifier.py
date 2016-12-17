@@ -77,7 +77,7 @@ class TrafficSignClassifier:
 
         # Parameters
         training_epochs = 100
-        batch_size = 20
+        batch_size = 5
         learning_rate = 0.001
 
         opt = tf.train.AdamOptimizer()
@@ -101,7 +101,7 @@ class TrafficSignClassifier:
             totalAccuracy = 0
 
             # The training cycle
-            for batch_i in range(batch_count):
+            for batch_i in tqdm(range(batch_count)):
 
                 # Get a batch of training features and labels
                 batch_start = batch_i * batch_size
