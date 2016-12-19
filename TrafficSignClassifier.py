@@ -243,7 +243,9 @@ class TrafficSignClassifier:
         M = np.float32([[1, 0, shift[0]], [0, 1, shift[0]]])
         shifted = cv2.warpAffine(img, M, (cols, rows))
         M = cv2.getRotationMatrix2D((cols / 2, rows / 2), rotation, scale)
-        return cv2.warpAffine(shifted, M, (cols, rows))
+        transformed = cv2.warpAffine(shifted, M, (cols, rows))
+
+        return transformed
 
     @staticmethod
     def inverse_transform_sampling(input_data, n_bins, n_samples):
@@ -277,7 +279,7 @@ class TrafficSignClassifier:
         Give a basic summary on training and test data
         """
         print("Number of training examples =", self.get_number_training_samples())
-        print("Number of testing examples =", self.get_number_test_samples)
+        print("Number of testing examples =", self.get_number_test_samples())
         print("Image data shape =", self.image_shape)
         print("Number of classes =", self.n_classes)
 
@@ -303,7 +305,7 @@ class TrafficSignClassifier:
 
         new_labels = []
         new_features = np.zeros([self.n_additional_features, self.training_features.shape[1],
-                                 self.training_features.shape[2], self.training_features.shape[3]])
+                                 self.training_features.shape[2], self.training_features.shape[3]], dtype=np.uint8)
 
         write_pos = 0
         for ind, number in zip(unique, counts):
