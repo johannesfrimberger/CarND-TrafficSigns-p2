@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import time
 from datetime import timedelta
 import math
+import csv
+import scipy.interpolate as interpolate
 
 import os
 
@@ -28,6 +30,9 @@ class TrafficSignClassifier:
         # Load training and test data from pickle file
         train, test = self.load_data(folder)
 
+        # Read class labels
+        self.sign_name = self.load_sign_names("signnames.csv")
+
         self.training_features = train[0]
         self.training_labels = train[1]
         self.test_features = test[0]
@@ -35,18 +40,24 @@ class TrafficSignClassifier:
         self.valid_features = np.zeros_like(self.training_features)
         self.valid_labels = np.zeros_like(self.training_labels)
 
-        self.n_train = 0
-        self.n_test = 0
-        self.image_shape = (0, 0)
-        self.n_classes = 0
-
         self.logits = 0
         self.prediction = 0
         self.loss = 0
         self.accuracy = 0
 
+        # What's the shape of an image?
+        self.image_shape = self.training_features.shape[1:3]
+        # How many classes are in the dataset
+        self.n_classes = len(set(self.training_labels))
+
+        self.cnn_depth = 64
         self.dense_layer_1 = 512
         self.dense_layer_2 = 512
+
+        self.n_additional_features = 10000
+
+        # Init random generator
+        np.random.seed(2000)
 
     def train(self):
         """
@@ -136,7 +147,7 @@ class TrafficSignClassifier:
         """
         Visualize the training set
         """
-        self.visualize_dataset(self.training_features, self.training_labels)
+        self.visualize_dataset(self.training_features, self.training_labels, self.n_classes)
 
     @staticmethod
     def load_data(folder):
@@ -159,28 +170,22 @@ class TrafficSignClassifier:
 
         return (X_train, y_train), (X_test, y_test)
 
-    def basic_summary(self):
+    @staticmethod
+    def load_sign_names(filename):
         """
-        Give a basic summary on training and test data
+        Load sign names from csv file
+        :param filename: csv file with class id in the first and sign name in the second column
+        :return: list with sign names
         """
-        # Number of training examples
-        self.n_train = self.training_features.shape[0]
 
-        # Number of testing examples
-        self.n_test = self.test_features.shape[0]
+        with open(filename, 'r') as f:
+            reader = csv.reader(f)
+            sign_names = list(reader)
 
-        # What's the shape of an image?
-        self.image_shape = self.training_features.shape[1:3]
+        return sign_names[1:]
 
-        # How many classes are in the dataset
-        self.n_classes = len(set(self.training_labels))
-
-        print("Number of training examples =", self.n_train)
-        print("Number of testing examples =", self.n_test)
-        print("Image data shape =", self.image_shape)
-        print("Number of classes =", self.n_classes)
-
-    def visualize_dataset(self, features, labels):
+    @staticmethod
+    def visualize_dataset(features, labels, n_classes):
         """
         Visualize the given features and labels.
         It shows a histogram of the distribution of classes and examples of the classes.
@@ -190,7 +195,8 @@ class TrafficSignClassifier:
 
         # Create a histogram of training lables
         fig = plt.figure()
-        n, bins, patches = plt.hist(labels, self.n_classes)
+        n, bins, patches = plt.hist(labels, n_classes)
+
         plt.xlabel('Traffic Sign Classes')
         plt.ylabel('occurrences')
         plt.show()
@@ -200,8 +206,8 @@ class TrafficSignClassifier:
 
         # Create an overview of trafic sign classes
         pltRows = 5
-        pltCols = (self.n_classes / pltRows) + 1
-        for el in range(self.n_classes):
+        pltCols = (n_classes / pltRows) + 1
+        for el in range(n_classes):
             for i in range(0, len(labels)):
                 if (labels[i] == el):
                     plt.subplot(pltRows, pltCols, el + 1)
@@ -222,6 +228,59 @@ class TrafficSignClassifier:
         yuv = yuv[:, :, np.newaxis]
         return (yuv / 255. * 2.) - 1.
 
+    @staticmethod
+    def shift_and_rotate_image(img, shift, rotation, scale):
+        """
+
+        :param img: Input image
+        :param shift: Tuple for shift in x and y direction
+        :param rotation: Rotation in deg
+        :param scale: Scaling that should be applied to the image
+        :return: Shifted and rotated input image
+        """
+        rows, cols, c = img.shape
+
+        M = np.float32([[1, 0, shift[0]], [0, 1, shift[0]]])
+        shifted = cv2.warpAffine(img, M, (cols, rows))
+        M = cv2.getRotationMatrix2D((cols / 2, rows / 2), rotation, scale)
+        return cv2.warpAffine(shifted, M, (cols, rows))
+
+    @staticmethod
+    def inverse_transform_sampling(input_data, n_bins, n_samples):
+        """
+        Code snippet taken from
+        http://www.nehalemlabs.net/prototype/blog/2013/12/16/how-to-do-inverse-transformation-sampling-in-scipy-and-numpy/
+        :param input_data:
+        :param n_bins:
+        :param n_samples:
+        :return:
+        """
+        # Calc histogram of input
+        hist, bin_edges = np.histogram(input_data, bins=n_bins, density=True)
+
+        # Inverse histogram and normalize again
+        new_hist = 1 / hist
+        new_hist = new_hist / sum(new_hist)
+
+        # Calc cumulative sum
+        cum_values = np.zeros(bin_edges.shape)
+        cum_values[1:] = np.cumsum(new_hist * np.diff(bin_edges))
+
+        inv_cdf = interpolate.interp1d(cum_values, bin_edges)
+
+        # Draw n_samples random numbers and ensure range is within cumulative sum elements
+        r = np.random.rand(n_samples) * cum_values[-1]
+        return inv_cdf(r)
+
+    def basic_summary(self):
+        """
+        Give a basic summary on training and test data
+        """
+        print("Number of training examples =", self.get_number_training_samples())
+        print("Number of testing examples =", self.get_number_test_samples)
+        print("Image data shape =", self.image_shape)
+        print("Number of classes =", self.n_classes)
+
     def pre_process_features(self):
         """
         Preprocess features to improve performance of classifier
@@ -233,9 +292,49 @@ class TrafficSignClassifier:
 
     def generate_additional_training_features(self):
         """
-        Generate addtional training features to have a more uniform distribution of labels
+        Generate additional training features to have a more uniform distribution of labels
         """
-        test = 0
+
+        new_feature_dist = self.inverse_transform_sampling(self.training_labels, self.n_classes, self.n_additional_features)
+        new_feature_dist = np.round(new_feature_dist)
+        new_feature_dist = new_feature_dist.astype(int)
+
+        unique, counts = np.unique(new_feature_dist, return_counts=True)
+
+        new_labels = []
+        new_features = np.zeros([self.n_additional_features, self.training_features.shape[1],
+                                 self.training_features.shape[2], self.training_features.shape[3]])
+
+        write_pos = 0
+        for ind, number in zip(unique, counts):
+
+            # Get index of existing images of this class
+            item_index = np.where(self.training_labels == ind)[0]
+            n_items = len(item_index)
+            iterations = int(np.ceil(number / n_items))
+
+            image_basis = np.copy(item_index)
+            for it in range(iterations-1):
+                np.random.shuffle(item_index)
+                image_basis = np.append(image_basis, item_index)
+
+            image_basis = image_basis[0:number]
+
+            for img_number in image_basis:
+                img = self.training_features[img_number]
+
+                shift = np.random.randint(-2, 2, (2, 1))
+                rot = np.random.randint(-15, 15)
+                scale = float(np.random.randint(90, 110)) / 100.
+
+                img = self.shift_and_rotate_image(img, shift, rot, scale)
+
+                new_labels.append(ind)
+                new_features[write_pos, :, :, :] = img
+                write_pos += 1
+
+        self.training_features = np.append(self.training_features, new_features, axis=0)
+        self.training_labels = np.append(self.training_labels, new_labels)
 
     def generate_ohe_encoding(self):
         """
@@ -271,9 +370,9 @@ class TrafficSignClassifier:
         }
 
         # Hidden layer with RELU activation
-        layer_1 = tf.add(tf.matmul(dense_input, weights['hidden_layer']), biases['hidden_layer'])
+        layer_1 = tf.nn.xw_plus_b(dense_input, weights['hidden_layer'], biases['hidden_layer'])
         layer_1 = tf.nn.relu(layer_1)
-        layer_2 = tf.add(tf.matmul(layer_1, weights['hidden_layer2']), biases['hidden_layer2'])
+        layer_2 = tf.nn.xw_plus_b(layer_1, weights['hidden_layer2'], biases['hidden_layer2'])
         layer_2 = tf.nn.relu(layer_2)
 
         # Output layer with linear activation
@@ -292,17 +391,33 @@ class TrafficSignClassifier:
         # Add 2 rows/columns on each side for height and width dimensions.
         x = tf.pad(x, [[0, 0], [2, 2], [2, 2], [0, 0]], mode="CONSTANT")
 
-        conv1_W = tf.Variable(tf.truncated_normal(shape=(5, 5, 1, 64)))
-        conv1_b = tf.Variable(tf.zeros(64))
+        conv1_W = tf.Variable(tf.truncated_normal(shape=(5, 5, 1, self.cnn_depth)))
+        conv1_b = tf.Variable(tf.zeros(self.cnn_depth))
         conv1 = tf.nn.conv2d(x, conv1_W, strides=[1, 1, 1, 1], padding='VALID') + conv1_b
         conv1 = tf.nn.relu(conv1)
 
         return conv1
 
     def define_metrics(self, labels):
+
         self.prediction = tf.nn.softmax(self.logits)
         self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.logits, labels))
+
         # Determine if the predictions are correct
         is_correct_prediction = tf.equal(tf.argmax(self.prediction, 1), tf.argmax(labels, 1))
         # Calculate the accuracy of the predictions
         self.accuracy = tf.reduce_mean(tf.cast(is_correct_prediction, tf.float32))
+
+    def get_number_training_samples(self):
+        """
+
+        :return:
+        """
+        return self.training_features.shape[0]
+
+    def get_number_test_samples(self):
+        """
+
+        :return:
+        """
+        return self.test_features.shape[0]
