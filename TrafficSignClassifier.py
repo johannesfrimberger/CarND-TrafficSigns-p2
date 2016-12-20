@@ -71,7 +71,7 @@ class TrafficSignClassifier:
         self.split_training_set()
 
         # Store placeholders for features and labels
-        features = tf.placeholder(tf.float32, [None, 32, 32, 1])
+        features = tf.placeholder(tf.float32, [None, 32, 32, 3])
         labels = tf.placeholder(tf.float32, [None, self.n_classes])
 
         # Reshape features for 1d input
@@ -81,14 +81,15 @@ class TrafficSignClassifier:
 
         # Create an operation that initializes all variables
         init = tf.global_variables_initializer()
+
         # Test Cases
         with tf.Session() as session:
             session.run(init)
-            session.run(self.loss, feed_dict={features: self.training_features[0:5], labels: self.training_labels[0:5]})
+            #session.run(self.loss, feed_dict={features: self.training_features, labels: self.training_labels})
 
         # Parameters
         training_epochs = 100
-        batch_size = 5
+        batch_size = 128
         learning_rate = 0.001
 
         opt = tf.train.AdamOptimizer()
@@ -104,6 +105,7 @@ class TrafficSignClassifier:
         sess.run(init)
 
         batch_count = int(math.ceil(len(self.training_features) / batch_size))
+        batch_count = 100
 
         # Training cycle
         for epoch_i in range(training_epochs):
@@ -116,9 +118,10 @@ class TrafficSignClassifier:
 
                 # Get a batch of training features and labels
                 batch_start = batch_i * batch_size
-                batch_features = self.training_features[batch_start:batch_start + batch_size]
-                batch_labels = self.training_labels[batch_start:batch_start + batch_size]
 
+                batch_features = self.training_features[batch_start:(batch_start + batch_size)]
+                batch_labels = self.training_labels[batch_start:(batch_start + batch_size)]
+                #print(batch_features.shape)
                 # Run optimizer and get loss
                 _, l, a = sess.run([optimizer, self.loss, self.accuracy], feed_dict={features: batch_features, labels: batch_labels})
 
@@ -237,8 +240,8 @@ class TrafficSignClassifier:
         :return: Normalized image in yuv space
         """
         yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
-        yuv = cv2.equalizeHist(yuv[:, :, 0])
-        yuv = yuv[:, :, np.newaxis]
+        yuv[:, :, 0] = cv2.equalizeHist(yuv[:, :, 0])
+        #yuv = yuv[:, :, np.newaxis]
         return (yuv / 255. * 2.) - 1.
 
     @staticmethod
@@ -404,12 +407,12 @@ class TrafficSignClassifier:
         :return:
         """
 
-        x = tf.reshape(features, (-1, 32, 32, 1))
+        x = tf.reshape(features, (-1, 32, 32, 3))
         # Pad 0s to 36x36. Centers the digit further.
         # Add 2 rows/columns on each side for height and width dimensions.
         x = tf.pad(x, [[0, 0], [2, 2], [2, 2], [0, 0]], mode="CONSTANT")
 
-        conv1_W = tf.Variable(tf.truncated_normal(shape=(5, 5, 1, self.cnn_depth)))
+        conv1_W = tf.Variable(tf.truncated_normal(shape=(5, 5, 3, self.cnn_depth)))
         conv1_b = tf.Variable(tf.zeros(self.cnn_depth))
         conv1 = tf.nn.conv2d(x, conv1_W, strides=[1, 1, 1, 1], padding='VALID') + conv1_b
         conv1 = tf.nn.relu(conv1)
