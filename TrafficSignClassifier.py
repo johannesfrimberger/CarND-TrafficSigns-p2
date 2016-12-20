@@ -149,6 +149,19 @@ class TrafficSignClassifier:
         """
         self.visualize_dataset(self.training_features, self.training_labels, self.n_classes)
 
+    def save_all_training_data(self):
+
+        folder = "temp/"
+        ind = 0
+        for label, el in zip(self.training_labels, self.training_features):
+            filename = folder + "img_{0:05d}.png".format(ind)
+            colorImg = cv2.cvtColor(el, cv2.COLOR_BGR2RGB)
+
+            #cv2.imwrite(filename, colorImg)
+            ind += 1
+
+            return
+
     @staticmethod
     def load_data(folder):
         """
@@ -335,8 +348,11 @@ class TrafficSignClassifier:
                 new_features[write_pos, :, :, :] = img
                 write_pos += 1
 
-        self.training_features = np.append(self.training_features, new_features, axis=0)
-        self.training_labels = np.append(self.training_labels, new_labels)
+        #self.training_features = np.append(self.training_features, new_features, axis=0)
+        #self.training_labels = np.append(self.training_labels, new_labels)
+        # Replace
+        self.training_features = new_features
+        self.training_labels = new_labels
 
     def generate_ohe_encoding(self):
         """
