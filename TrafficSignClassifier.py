@@ -33,6 +33,9 @@ class TrafficSignClassifier:
         self.dense_layer_2 = 512
         self.beta = 0.001
 
+        # Filename to store current model
+        self.save_file = "model.ckpt"
+
         # Load training and test data from pickle file
         train, test = self.load_data(folder)
 
@@ -135,6 +138,9 @@ class TrafficSignClassifier:
             # Initializing the variables
             init = tf.global_variables_initializer()
 
+            # Class used to save and/or restore Tensor Variables
+            saver = tf.train.Saver()
+
             # Launch the graph
             sess = tf.Session()
             sess.run(init)
@@ -206,6 +212,31 @@ class TrafficSignClassifier:
                 self.hist_valid_loss.append(total_loss)
                 self.hist_valid_acc.append(total_accuracy)
 
+            # Save model
+            saver.save(sess, self.save_file)
+
+            test_batch_count = int(math.ceil(self.test_features.shape[0] / batch_size))
+
+            for batch_i in range(test_batch_count):
+                # Get a batch of training features and labels
+                batch_start = batch_i * batch_size
+
+                batch_features = self.test_features[batch_start:(batch_start + batch_size)]
+                batch_labels = self.test_labels[batch_start:(batch_start + batch_size)]
+                l, a = sess.run([self.loss, self.accuracy],
+                                feed_dict={self.features: batch_features, self.labels: batch_labels,
+                                           self.keep_prob: 1.0})
+
+                total_loss += l
+                total_accuracy += a
+
+            sess.close()
+
+            total_loss /= test_batch_count
+            total_accuracy /= test_batch_count
+
+            print("Test Loss of {:.6f} and Accuracy of {:.6f}".format(total_loss, total_accuracy))
+
             sess.close()
 
             # Determine time used for training and print information
@@ -230,7 +261,7 @@ class TrafficSignClassifier:
         plt.tight_layout()
         plt.show()
 
-    def save_model(self, save_file):
+    def load_model(self, save_file):
         """
 
         :param save_file:
@@ -240,11 +271,8 @@ class TrafficSignClassifier:
         saver = tf.train.Saver()
 
         with tf.Session() as sess:
-            # Initialize all the Variables
-            sess.run(tf.global_variables_initializer())
-
-            # Save the model
-            saver.save(sess, save_file)
+            # Load the weights and bias
+            saver.restore(sess, save_file)
 
     def visualize_training_set(self):
         """
@@ -260,12 +288,12 @@ class TrafficSignClassifier:
         total_accuracy = 0
         test_batch_count = int(math.ceil(self.test_features.shape[0] / batch_size))
 
-        # Initializing the variables
-        init = tf.global_variables_initializer()
+        saver = tf.train.Saver()
 
         # Launch the graph
         sess = tf.Session()
-        sess.run(init)
+
+        saver.restore(sess, self.save_file)
 
         for batch_i in range(test_batch_count):
             # Get a batch of training features and labels
@@ -498,7 +526,7 @@ class TrafficSignClassifier:
         self.valid_labels = encoder.transform(self.valid_labels)
         self.test_labels = encoder.transform(self.test_labels)
 
-    def split_training_set(self, test_size=0.15):
+    def split_training_set(self, valid_size=0.15):
         """
         Split training set into traning and validation set
         :param test_size:
@@ -506,7 +534,7 @@ class TrafficSignClassifier:
         self.training_features, self.valid_features, self.training_labels, self.valid_labels = train_test_split(
             self.training_features,
             self.training_labels,
-            test_size=test_size,
+            test_size=valid_size,
             random_state=10)
 
     def create_deep_layer(self, dense_input, dropout=False):
