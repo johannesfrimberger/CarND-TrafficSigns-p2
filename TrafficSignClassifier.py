@@ -77,6 +77,12 @@ class TrafficSignClassifier:
             'out': tf.Variable(tf.random_normal([self.n_classes]))
         }
 
+        # Internal storage for training progress visualization
+        self.hist_train_loss = []
+        self.hist_train_acc = []
+        self.hist_valid_loss = []
+        self.hist_valid_acc = []
+
 
     def train(self, dropout=False, l2_reg=False, training_epochs=100, batch_size=50, run_optimization=True):
         """
@@ -103,9 +109,21 @@ class TrafficSignClassifier:
             session.run(self.loss, feed_dict={self.features: self.training_features[0:2],
                                               self.labels: self.training_labels[0:2],
                                               self.keep_prob: 1.0})
+            session.run(self.loss, feed_dict={self.features: self.valid_features[0:2],
+                                              self.labels: self.valid_labels[0:2],
+                                              self.keep_prob: 1.0})
+            session.run(self.loss, feed_dict={self.features: self.test_features[0:2],
+                                              self.labels: self.test_labels[0:2],
+                                              self.keep_prob: 1.0})
 
         # Run optimization algorithm only if requested
         if run_optimization:
+
+            # Reset internal storage for visualization
+            self.hist_train_loss = []
+            self.hist_train_acc = []
+            self.hist_valid_loss = []
+            self.hist_valid_acc = []
 
             # Use Adam optimizer and minimize the loss
             opt = tf.train.AdamOptimizer()
@@ -151,11 +169,15 @@ class TrafficSignClassifier:
                     total_loss.append(l)
                     total_accuracy.append(a)
 
-                # Calulcate mean of loss and accuracy list + Print this information
+                # Calculate mean of loss and accuracy list + Print this information
                 total_loss = np.mean(total_loss)
                 total_accuracy = np.mean(total_accuracy)
                 print("Epoch {}/{} with Loss of {:.6f} and Accuracy of {:.6f}"
                       .format(epoch_i + 1, training_epochs, total_loss, total_accuracy))
+
+                # Store history
+                self.hist_train_loss.append(total_loss)
+                self.hist_train_acc.append(total_accuracy)
 
                 total_loss = []
                 total_accuracy = []
@@ -175,10 +197,14 @@ class TrafficSignClassifier:
                     total_loss.append(l)
                     total_accuracy.append(a)
 
+                # Calculate mean of loss and accuracy list + Print this information
                 total_loss = np.mean(total_loss)
                 total_accuracy = np.mean(total_accuracy)
-
                 print("Validation Loss of {:.6f} and Accuracy of {:.6f}".format(total_loss, total_accuracy))
+
+                # Store history
+                self.hist_valid_loss.append(total_loss)
+                self.hist_valid_acc.append(total_accuracy)
 
             sess.close()
 
@@ -186,6 +212,23 @@ class TrafficSignClassifier:
             end_time = time.time()
             time_dif = end_time - start_time
             print("Time usage: " + str(timedelta(seconds=int(round(time_dif)))))
+
+    def visualize_training_progress(self):
+        """
+
+        """
+
+        loss_plot = plt.subplot(211)
+        loss_plot.set_title('Loss')
+        loss_plot.plot(range(0, len(self.hist_train_loss)), self.hist_train_loss, 'g')
+        acc_plot = plt.subplot(212)
+        acc_plot.set_title('Accuracy')
+        acc_plot.plot(range(0, len(self.hist_train_loss)), self.hist_train_acc, 'r', label='Training Accuracy')
+        acc_plot.plot(range(0, len(self.hist_train_loss)), self.hist_valid_acc, 'b', label='Validation Accuracy')
+        acc_plot.set_ylim([0, 1.0])
+        acc_plot.legend(loc=4)
+        plt.tight_layout()
+        plt.show()
 
     def save_model(self, save_file):
         """
@@ -392,6 +435,9 @@ class TrafficSignClassifier:
         self.training_features = np.array(
             [self.pre_process_image(self.training_features[i]) for i in range(len(self.training_features))],
             dtype=np.float32)
+        self.valid_features = np.array(
+            [self.pre_process_image(self.valid_features[i]) for i in range(len(self.valid_features))],
+            dtype=np.float32)
         self.test_features = np.array(
             [self.pre_process_image(self.test_features[i]) for i in range(len(self.test_features))],
             dtype=np.float32)
@@ -430,11 +476,9 @@ class TrafficSignClassifier:
             for img_number in image_basis:
                 img = self.training_features[img_number]
 
-                # shift = np.random.randint(-2, 2, (2, 1))
-                shift = (0, 0)
+                shift = np.random.randint(-2, 2, (2, 1))
                 rot = np.random.randint(-2, 2) * 5
-                # scale = float(np.random.randint(90, 110)) / 100.
-                scale = 1.0
+                scale = float(np.random.randint(90, 110)) / 100.
                 img = self.shift_and_rotate_image(img, shift, rot, scale)
 
                 new_labels.append(ind)
