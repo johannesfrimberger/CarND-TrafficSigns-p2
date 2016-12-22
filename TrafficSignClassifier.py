@@ -31,6 +31,7 @@ class TrafficSignClassifier:
         self.cnn_depth = 64
         self.dense_layer_1 = 512
         self.dense_layer_2 = 512
+        self.beta = 0.001
 
         # Load training and test data from pickle file
         train, test = self.load_data(folder)
@@ -57,6 +58,7 @@ class TrafficSignClassifier:
         # Store tensorflow placeholders for features and labels
         self.features = tf.placeholder(tf.float32, [None, 32, 32, 3])
         self.labels = tf.placeholder(tf.float32, [None, self.n_classes])
+        self.keep_prob = tf.placeholder(tf.float32)
 
         # Initialize tensorflow places
         self.logits = 0
@@ -64,9 +66,23 @@ class TrafficSignClassifier:
         self.loss = 0
         self.accuracy = 0
 
-    def train(self, training_epochs=100, batch_size=50, run_optimization=True):
+        self.weights = {
+            'hidden_layer': tf.Variable(tf.random_normal([1, self.dense_layer_1])),
+            'hidden_layer2': tf.Variable(tf.random_normal([self.dense_layer_1, self.dense_layer_2])),
+            'out': tf.Variable(tf.random_normal([self.dense_layer_2, self.n_classes]))
+        }
+        self.biases = {
+            'hidden_layer': tf.Variable(tf.random_normal([self.dense_layer_1])),
+            'hidden_layer2': tf.Variable(tf.random_normal([self.dense_layer_2])),
+            'out': tf.Variable(tf.random_normal([self.n_classes]))
+        }
+
+
+    def train(self, dropout=False, l2_reg=False, training_epochs=100, batch_size=50, run_optimization=True):
         """
         Run all required methods to train traffic sign classifier optimization
+        :param dropout:
+        :param l2_reg:
         :param training_epochs:
         :param batch_size:
         :param run_optimization:
@@ -75,8 +91,8 @@ class TrafficSignClassifier:
 
         # Reshape features for 1d input
         cnn = self.create_cnn()
-        self.logits = self.create_deep_layer(flatten(cnn))
-        self.define_metrics()
+        self.logits = self.create_deep_layer(flatten(cnn), dropout=dropout)
+        self.define_metrics(l2_reg)
 
         # Create an operation that initializes all variables
         init = tf.global_variables_initializer()
@@ -85,7 +101,8 @@ class TrafficSignClassifier:
         with tf.Session() as session:
             session.run(init)
             session.run(self.loss, feed_dict={self.features: self.training_features[0:2],
-                                              self.labels: self.training_labels[0:2]})
+                                              self.labels: self.training_labels[0:2],
+                                              self.keep_prob: 1.0})
 
         # Run optimization algorithm only if requested
         if run_optimization:
@@ -104,7 +121,7 @@ class TrafficSignClassifier:
             sess = tf.Session()
             sess.run(init)
 
-            # Determine 
+            # Determine
             batch_count = int(math.ceil(self.training_features.shape[0] / batch_size))
 
             # Training cycle
@@ -123,8 +140,12 @@ class TrafficSignClassifier:
                     batch_labels = self.training_labels[batch_start:(batch_start + batch_size)]
 
                     # Run optimizer and determine loss + accuracy for this batch
-                    _, l, a = sess.run([optimizer, self.loss, self.accuracy],
-                                       feed_dict={self.features: batch_features, self.labels: batch_labels})
+                    sess.run(optimizer, feed_dict={self.features: batch_features, self.labels: batch_labels,
+                                                   self.keep_prob: 0.5})
+
+                    l, a = sess.run([self.loss, self.accuracy],
+                                    feed_dict={self.features: batch_features, self.labels: batch_labels,
+                                               self.keep_prob: 1.0})
 
                     # Add loss and accuracy of this batch to list
                     total_loss.append(l)
@@ -148,7 +169,8 @@ class TrafficSignClassifier:
                     batch_features = self.valid_features[batch_start:(batch_start + batch_size)]
                     batch_labels = self.valid_labels[batch_start:(batch_start + batch_size)]
                     l, a = sess.run([self.loss, self.accuracy],
-                                    feed_dict={self.features: batch_features, self.labels: batch_labels})
+                                    feed_dict={self.features: batch_features, self.labels: batch_labels,
+                                               self.keep_prob: 1.0})
 
                     total_loss.append(l)
                     total_accuracy.append(a)
@@ -176,7 +198,7 @@ class TrafficSignClassifier:
 
         with tf.Session() as sess:
             # Initialize all the Variables
-            sess.run(tf.initialize_all_variables())
+            sess.run(tf.global_variables_initializer())
 
             # Save the model
             saver.save(sess, save_file)
@@ -209,10 +231,11 @@ class TrafficSignClassifier:
             batch_features = self.test_features[batch_start:(batch_start + batch_size)]
             batch_labels = self.test_labels[batch_start:(batch_start + batch_size)]
             l, a = sess.run([self.loss, self.accuracy],
-                            feed_dict={self.features: batch_features, self.labels: batch_labels})
+                            feed_dict={self.features: batch_features, self.labels: batch_labels, self.keep_prob: 1.0})
 
             total_loss += l
             total_accuracy += a
+
         sess.close()
 
         total_loss /= test_batch_count
@@ -431,38 +454,48 @@ class TrafficSignClassifier:
         self.valid_labels = encoder.transform(self.valid_labels)
         self.test_labels = encoder.transform(self.test_labels)
 
-    def split_training_set(self):
+    def split_training_set(self, test_size=0.15):
         """
         Split training set into traning and validation set
+        :param test_size:
         """
         self.training_features, self.valid_features, self.training_labels, self.valid_labels = train_test_split(
             self.training_features,
             self.training_labels,
-            test_size=0.15,
-            random_state=832289)
+            test_size=test_size,
+            random_state=10)
 
-    def create_deep_layer(self, dense_input):
+    def create_deep_layer(self, dense_input, dropout=False):
+        """
+
+        :param dense_input:
+        :param dropout:
+        :return:
+        """
 
         # Store layers weight & bias
-        weights = {
+        self.weights = {
             'hidden_layer': tf.Variable(tf.random_normal([dense_input.get_shape().as_list()[-1], self.dense_layer_1])),
             'hidden_layer2': tf.Variable(tf.random_normal([self.dense_layer_1, self.dense_layer_2])),
             'out': tf.Variable(tf.random_normal([self.dense_layer_2, self.n_classes]))
         }
-        biases = {
+        self.biases = {
             'hidden_layer': tf.Variable(tf.random_normal([self.dense_layer_1])),
             'hidden_layer2': tf.Variable(tf.random_normal([self.dense_layer_2])),
             'out': tf.Variable(tf.random_normal([self.n_classes]))
         }
 
         # Hidden layer with RELU activation
-        layer_1 = tf.nn.xw_plus_b(dense_input, weights['hidden_layer'], biases['hidden_layer'])
+        layer_1 = tf.nn.xw_plus_b(dense_input, self.weights['hidden_layer'], self.biases['hidden_layer'])
         layer_1 = tf.nn.relu(layer_1)
-        layer_2 = tf.nn.xw_plus_b(layer_1, weights['hidden_layer2'], biases['hidden_layer2'])
+
+        layer_2 = tf.nn.xw_plus_b(layer_1, self.weights['hidden_layer2'], self.biases['hidden_layer2'])
         layer_2 = tf.nn.relu(layer_2)
+        if dropout:
+            layer_2 = tf.nn.dropout(layer_2, self.keep_prob)
 
         # Output layer with linear activation
-        logits = tf.add(tf.matmul(layer_2, weights['out']), biases['out'])
+        logits = tf.add(tf.matmul(layer_2, self.weights['out']), self.biases['out'])
 
         return logits
 
@@ -484,10 +517,23 @@ class TrafficSignClassifier:
 
         return conv1
 
-    def define_metrics(self):
+    def define_metrics(self, l2_reg=False):
+        """
 
+        :param l2_reg:
+        :return:
+        """
         self.prediction = tf.nn.softmax(self.logits)
         self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.logits, self.labels))
+
+        if l2_reg:
+            self.loss = (self.loss +
+                         self.beta * tf.nn.l2_loss(self.weights['hidden_layer']) +
+                         self.beta * tf.nn.l2_loss(self.weights['hidden_layer2']) +
+                         self.beta * tf.nn.l2_loss(self.weights['out']) +
+                         self.beta * tf.nn.l2_loss(self.biases['hidden_layer']) +
+                         self.beta * tf.nn.l2_loss(self.biases['hidden_layer2']) +
+                         self.beta * tf.nn.l2_loss(self.weights['out']))
 
         # Determine if the predictions are correct
         is_correct_prediction = tf.equal(tf.argmax(self.prediction, 1), tf.argmax(self.labels, 1))

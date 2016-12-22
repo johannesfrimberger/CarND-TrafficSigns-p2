@@ -10,7 +10,9 @@ def main():
     tsc.generate_ohe_encoding()
     tsc.split_training_set()
 
-    tsc.train(run_optimization=True, batch_size=2, training_epochs=1)
+    tsc.train(run_optimization=False, batch_size=2, training_epochs=1, dropout=True, l2_reg=True)
+
+    tsc.save_model("model.ckpt")
 
 if __name__ == "__main__":
     main()
