@@ -34,7 +34,7 @@ class TrafficSignClassifier:
         self.beta = 0.001
 
         # Filename to store current model
-        self.save_file = "model.ckpt"
+        self.save_file = "model"
 
         # Load training and test data from pickle file
         train, test = self.load_data(folder)
@@ -261,19 +261,6 @@ class TrafficSignClassifier:
         plt.tight_layout()
         plt.show()
 
-    def load_model(self, save_file):
-        """
-
-        :param save_file:
-        :return:
-        """
-        # Class used to save and/or restore Tensor Variables
-        saver = tf.train.Saver()
-
-        with tf.Session() as sess:
-            # Load the weights and bias
-            saver.restore(sess, save_file)
-
     def visualize_training_set(self):
         """
         Visualize the training set
@@ -288,12 +275,11 @@ class TrafficSignClassifier:
         total_accuracy = 0
         test_batch_count = int(math.ceil(self.test_features.shape[0] / batch_size))
 
-        saver = tf.train.Saver()
-
         # Launch the graph
         sess = tf.Session()
 
-        saver.restore(sess, self.save_file)
+        saver = tf.train.import_meta_graph(self.save_file + '.meta')
+        saver.restore(sess, tf.train.latest_checkpoint('./'))
 
         for batch_i in range(test_batch_count):
             # Get a batch of training features and labels
