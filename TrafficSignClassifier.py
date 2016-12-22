@@ -6,7 +6,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
 import tensorflow as tf
 from tensorflow.contrib.layers import flatten
-from tqdm import tqdm
 import matplotlib.pyplot as plt
 import time
 from datetime import timedelta
@@ -16,9 +15,10 @@ import scipy.interpolate as interpolate
 
 import os
 
+
 class TrafficSignClassifier:
     """
-
+    Common class to access methods of the traffic sign classifier
     """
 
     def __init__(self, folder):
@@ -27,12 +27,15 @@ class TrafficSignClassifier:
         :param folder: Storage folder of training and test data
         """
 
+        # Parameters for the convolutional neural net with 2 dense layers
+        self.cnn_depth = 64
+        self.dense_layer_1 = 512
+        self.dense_layer_2 = 512
+
         # Load training and test data from pickle file
         train, test = self.load_data(folder)
 
-        # Read class labels
-        self.sign_name = self.load_sign_names("signnames.csv")
-
+        # Init internal storage of training, test and validation set
         self.training_features = train[0]
         self.training_labels = train[1]
         self.test_features = test[0]
@@ -40,62 +43,157 @@ class TrafficSignClassifier:
         self.valid_features = np.zeros_like(self.training_features)
         self.valid_labels = np.zeros_like(self.training_labels)
 
-        self.logits = 0
-        self.prediction = 0
-        self.loss = 0
-        self.accuracy = 0
+        # Read class labels and store them
+        self.sign_name = self.load_sign_names("signnames.csv")
 
         # What's the shape of an image?
         self.image_shape = self.training_features.shape[1:3]
         # How many classes are in the dataset
         self.n_classes = len(set(self.training_labels))
 
-        self.cnn_depth = 64
-        self.dense_layer_1 = 512
-        self.dense_layer_2 = 512
-
-        self.n_additional_features = 10000
-
         # Init random generator
         np.random.seed(2000)
 
-    def train(self):
-        """
-        Run all required methods to train traffic sign classifier
-        """
-        self.basic_summary()
-        #self.visualize_training_set()
-        self.generate_additional_training_features()
-        self.pre_process_features()
-        self.generate_ohe_encoding()
-        self.split_training_set()
+        # Store tensorflow placeholders for features and labels
+        self.features = tf.placeholder(tf.float32, [None, 32, 32, 3])
+        self.labels = tf.placeholder(tf.float32, [None, self.n_classes])
 
-        # Store placeholders for features and labels
-        features = tf.placeholder(tf.float32, [None, 32, 32, 3])
-        labels = tf.placeholder(tf.float32, [None, self.n_classes])
+        # Initialize tensorflow places
+        self.logits = 0
+        self.prediction = 0
+        self.loss = 0
+        self.accuracy = 0
+
+    def train(self, training_epochs=100, batch_size=50, run_optimization=True):
+        """
+        Run all required methods to train traffic sign classifier optimization
+        :param training_epochs:
+        :param batch_size:
+        :param run_optimization:
+        :return:
+        """
 
         # Reshape features for 1d input
-        cnn = self.create_cnn(features)
+        cnn = self.create_cnn()
         self.logits = self.create_deep_layer(flatten(cnn))
-        self.define_metrics(labels)
+        self.define_metrics()
 
         # Create an operation that initializes all variables
         init = tf.global_variables_initializer()
 
-        # Test Cases
+        # Test model with a small set of training data
         with tf.Session() as session:
             session.run(init)
-            #session.run(self.loss, feed_dict={features: self.training_features, labels: self.training_labels})
+            session.run(self.loss, feed_dict={self.features: self.training_features[0:2],
+                                              self.labels: self.training_labels[0:2]})
 
-        # Parameters
-        training_epochs = 100
-        batch_size = 128
-        learning_rate = 0.001
+        # Run optimization algorithm only if requested
+        if run_optimization:
 
-        opt = tf.train.AdamOptimizer()
-        optimizer = opt.minimize(self.loss)
+            # Use Adam optimizer and minimize the loss
+            opt = tf.train.AdamOptimizer()
+            optimizer = opt.minimize(self.loss)
 
-        start_time = time.time()
+            # Store
+            start_time = time.time()
+
+            # Initializing the variables
+            init = tf.global_variables_initializer()
+
+            # Launch the graph
+            sess = tf.Session()
+            sess.run(init)
+
+            # Determine 
+            batch_count = int(math.ceil(self.training_features.shape[0] / batch_size))
+
+            # Training cycle
+            for epoch_i in range(training_epochs):
+
+                total_loss = []
+                total_accuracy = []
+
+                # Run all batches
+                for batch_i in range(batch_count):
+
+                    # Get a batch of training features and labels
+                    batch_start = batch_i * batch_size
+
+                    batch_features = self.training_features[batch_start:(batch_start + batch_size)]
+                    batch_labels = self.training_labels[batch_start:(batch_start + batch_size)]
+
+                    # Run optimizer and determine loss + accuracy for this batch
+                    _, l, a = sess.run([optimizer, self.loss, self.accuracy],
+                                       feed_dict={self.features: batch_features, self.labels: batch_labels})
+
+                    # Add loss and accuracy of this batch to list
+                    total_loss.append(l)
+                    total_accuracy.append(a)
+
+                # Calulcate mean of loss and accuracy list + Print this information
+                total_loss = np.mean(total_loss)
+                total_accuracy = np.mean(total_accuracy)
+                print("Epoch {}/{} with Loss of {:.6f} and Accuracy of {:.6f}"
+                      .format(epoch_i + 1, training_epochs, total_loss, total_accuracy))
+
+                total_loss = []
+                total_accuracy = []
+
+                valid_batch_count = int(math.ceil(self.valid_features.shape[0] / batch_size))
+
+                for batch_i in range(valid_batch_count):
+                    # Get a batch of training features and labels
+                    batch_start = batch_i * batch_size
+
+                    batch_features = self.valid_features[batch_start:(batch_start + batch_size)]
+                    batch_labels = self.valid_labels[batch_start:(batch_start + batch_size)]
+                    l, a = sess.run([self.loss, self.accuracy],
+                                    feed_dict={self.features: batch_features, self.labels: batch_labels})
+
+                    total_loss.append(l)
+                    total_accuracy.append(a)
+
+                total_loss = np.mean(total_loss)
+                total_accuracy = np.mean(total_accuracy)
+
+                print("Validation Loss of {:.6f} and Accuracy of {:.6f}".format(total_loss, total_accuracy))
+
+            sess.close()
+
+            # Determine time used for training and print information
+            end_time = time.time()
+            time_dif = end_time - start_time
+            print("Time usage: " + str(timedelta(seconds=int(round(time_dif)))))
+
+    def save_model(self, save_file):
+        """
+
+        :param save_file:
+        :return:
+        """
+        # Class used to save and/or restore Tensor Variables
+        saver = tf.train.Saver()
+
+        with tf.Session() as sess:
+            # Initialize all the Variables
+            sess.run(tf.initialize_all_variables())
+
+            # Save the model
+            saver.save(sess, save_file)
+
+    def visualize_training_set(self):
+        """
+        Visualize the training set
+        """
+        self.visualize_dataset(self.training_features, self.training_labels, self.n_classes)
+
+    def evaluate_test_set(self, batch_size=50):
+        """
+        Run current classifier on test set
+        """
+        total_loss = 0
+        total_accuracy = 0
+        test_batch_count = int(math.ceil(self.test_features.shape[0] / batch_size))
 
         # Initializing the variables
         init = tf.global_variables_initializer()
@@ -104,66 +202,30 @@ class TrafficSignClassifier:
         sess = tf.Session()
         sess.run(init)
 
-        batch_count = int(math.ceil(len(self.training_features) / batch_size))
-        batch_count = 100
+        for batch_i in range(test_batch_count):
+            # Get a batch of training features and labels
+            batch_start = batch_i * batch_size
 
-        # Training cycle
-        for epoch_i in range(training_epochs):
-
-            totalLoss = 0
-            totalAccuracy = 0
-
-            # The training cycle
-            for batch_i in tqdm(range(batch_count)):
-
-                # Get a batch of training features and labels
-                batch_start = batch_i * batch_size
-
-                batch_features = self.training_features[batch_start:(batch_start + batch_size)]
-                batch_labels = self.training_labels[batch_start:(batch_start + batch_size)]
-                #print(batch_features.shape)
-                # Run optimizer and get loss
-                _, l, a = sess.run([optimizer, self.loss, self.accuracy], feed_dict={features: batch_features, labels: batch_labels})
-
-                totalLoss += l
-                totalAccuracy += a
-
-            totalLoss /= batch_count
-            totalAccuracy /= batch_count
-            print("Epoch {}/{} with Loss of {:.6f} and Accuracy of {:.6f}".format(epoch_i + 1, training_epochs, totalLoss, totalAccuracy))
-
+            batch_features = self.test_features[batch_start:(batch_start + batch_size)]
+            batch_labels = self.test_labels[batch_start:(batch_start + batch_size)]
             l, a = sess.run([self.loss, self.accuracy],
-                               feed_dict={features: self.valid_features, labels: self.valid_labels})
-            print("Validation Loss of {:.6f} and Accuracy of {:.6f}".format(l, a))
+                            feed_dict={self.features: batch_features, self.labels: batch_labels})
+
+            total_loss += l
+            total_accuracy += a
         sess.close()
 
-        end_time = time.time()
-        time_dif = end_time - start_time
+        total_loss /= test_batch_count
+        total_accuracy /= test_batch_count
 
-        l, a = sess.run([self.loss, self.accuracy],
-                        feed_dict={features: self.test_features, labels: self.test_labels})
-        print("Test Loss of {:.6f} and Accuracy of {:.6f}".format(l, a))
+        print("Test Loss of {:.6f} and Accuracy of {:.6f}".format(total_loss, total_accuracy))
 
-        print("Time usage: " + str(timedelta(seconds=int(round(time_dif)))))
-
-    def visualize_training_set(self):
+    def evaluate_image(self, image_list):
         """
-        Visualize the training set
+        Determine traffic sign class for all images in given list
+        :param image_list: np array containing all images that should be evaluated
         """
-        self.visualize_dataset(self.training_features, self.training_labels, self.n_classes)
 
-    def save_all_training_data(self):
-
-        folder = "temp/"
-        ind = 0
-        for label, el in zip(self.training_labels, self.training_features):
-            filename = folder + "img_{0:05d}.png".format(ind)
-            colorImg = cv2.cvtColor(el, cv2.COLOR_BGR2RGB)
-
-            #cv2.imwrite(filename, colorImg)
-            ind += 1
-
-            return
 
     @staticmethod
     def load_data(folder):
@@ -241,13 +303,13 @@ class TrafficSignClassifier:
         """
         yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
         yuv[:, :, 0] = cv2.equalizeHist(yuv[:, :, 0])
-        #yuv = yuv[:, :, np.newaxis]
+        # yuv = yuv[:, :, np.newaxis]
         return (yuv / 255. * 2.) - 1.
 
     @staticmethod
     def shift_and_rotate_image(img, shift, rotation, scale):
         """
-
+        Shift and rotate image by given coefficients
         :param img: Input image
         :param shift: Tuple for shift in x and y direction
         :param rotation: Rotation in deg
@@ -256,16 +318,17 @@ class TrafficSignClassifier:
         """
         rows, cols, c = img.shape
 
-        M = np.float32([[1, 0, shift[0]], [0, 1, shift[0]]])
-        shifted = cv2.warpAffine(img, M, (cols, rows))
-        M = cv2.getRotationMatrix2D((cols / 2, rows / 2), rotation, scale)
-        transformed = cv2.warpAffine(shifted, M, (cols, rows))
+        m = np.float32([[1, 0, shift[0]], [0, 1, shift[0]]])
+        shifted = cv2.warpAffine(img, m, (cols, rows))
+        m = cv2.getRotationMatrix2D((cols / 2, rows / 2), rotation, scale)
+        transformed = cv2.warpAffine(shifted, m, (cols, rows))
 
         return transformed
 
     @staticmethod
     def inverse_transform_sampling(input_data, n_bins, n_samples):
         """
+        Analyse distribution of input data and draw samples to increase uniformity of the distribution
         Code snippet taken from
         http://www.nehalemlabs.net/prototype/blog/2013/12/16/how-to-do-inverse-transformation-sampling-in-scipy-and-numpy/
         :param input_data:
@@ -294,8 +357,8 @@ class TrafficSignClassifier:
         """
         Give a basic summary on training and test data
         """
-        print("Number of training examples =", self.get_number_training_samples())
-        print("Number of testing examples =", self.get_number_test_samples())
+        print("Number of training examples =", self.training_features.shape[0])
+        print("Number of testing examples =", self.test_features.shape[0])
         print("Image data shape =", self.image_shape)
         print("Number of classes =", self.n_classes)
 
@@ -303,24 +366,27 @@ class TrafficSignClassifier:
         """
         Preprocess features to improve performance of classifier
         """
-        self.training_features = np.array([self.pre_process_image(self.training_features[i]) for i in range(len(self.training_features))],
-                                  dtype=np.float32)
-        self.test_features = np.array([self.pre_process_image(self.test_features[i]) for i in range(len(self.test_features))],
-                                 dtype=np.float32)
+        self.training_features = np.array(
+            [self.pre_process_image(self.training_features[i]) for i in range(len(self.training_features))],
+            dtype=np.float32)
+        self.test_features = np.array(
+            [self.pre_process_image(self.test_features[i]) for i in range(len(self.test_features))],
+            dtype=np.float32)
 
-    def generate_additional_training_features(self):
+    def generate_additional_training_features(self, n_additional_features=10000):
         """
         Generate additional training features to have a more uniform distribution of labels
         """
 
-        new_feature_dist = self.inverse_transform_sampling(self.training_labels, self.n_classes, self.n_additional_features)
+        new_feature_dist = self.inverse_transform_sampling(self.training_labels, self.n_classes,
+                                                           n_additional_features)
         new_feature_dist = np.round(new_feature_dist)
         new_feature_dist = new_feature_dist.astype(int)
 
         unique, counts = np.unique(new_feature_dist, return_counts=True)
 
         new_labels = []
-        new_features = np.zeros([self.n_additional_features, self.training_features.shape[1],
+        new_features = np.zeros([n_additional_features, self.training_features.shape[1],
                                  self.training_features.shape[2], self.training_features.shape[3]], dtype=np.uint8)
 
         write_pos = 0
@@ -332,7 +398,7 @@ class TrafficSignClassifier:
             iterations = int(np.ceil(number / n_items))
 
             image_basis = np.copy(item_index)
-            for it in range(iterations-1):
+            for it in range(iterations - 1):
                 np.random.shuffle(item_index)
                 image_basis = np.append(image_basis, item_index)
 
@@ -341,21 +407,19 @@ class TrafficSignClassifier:
             for img_number in image_basis:
                 img = self.training_features[img_number]
 
-                shift = np.random.randint(-2, 2, (2, 1))
-                rot = np.random.randint(-15, 15)
-                scale = float(np.random.randint(90, 110)) / 100.
-
+                # shift = np.random.randint(-2, 2, (2, 1))
+                shift = (0, 0)
+                rot = np.random.randint(-2, 2) * 5
+                # scale = float(np.random.randint(90, 110)) / 100.
+                scale = 1.0
                 img = self.shift_and_rotate_image(img, shift, rot, scale)
 
                 new_labels.append(ind)
                 new_features[write_pos, :, :, :] = img
                 write_pos += 1
 
-        #self.training_features = np.append(self.training_features, new_features, axis=0)
-        #self.training_labels = np.append(self.training_labels, new_labels)
-        # Replace
-        self.training_features = new_features
-        self.training_labels = new_labels
+        self.training_features = np.append(self.training_features, new_features, axis=0)
+        self.training_labels = np.append(self.training_labels, new_labels)
 
     def generate_ohe_encoding(self):
         """
@@ -364,6 +428,7 @@ class TrafficSignClassifier:
         encoder = LabelBinarizer()
         encoder.fit(self.training_labels)
         self.training_labels = encoder.transform(self.training_labels)
+        self.valid_labels = encoder.transform(self.valid_labels)
         self.test_labels = encoder.transform(self.test_labels)
 
     def split_training_set(self):
@@ -401,13 +466,13 @@ class TrafficSignClassifier:
 
         return logits
 
-    def create_cnn(self, features):
+    def create_cnn(self):
         """
 
         :return:
         """
 
-        x = tf.reshape(features, (-1, 32, 32, 3))
+        x = tf.reshape(self.features, (-1, 32, 32, 3))
         # Pad 0s to 36x36. Centers the digit further.
         # Add 2 rows/columns on each side for height and width dimensions.
         x = tf.pad(x, [[0, 0], [2, 2], [2, 2], [0, 0]], mode="CONSTANT")
@@ -419,26 +484,12 @@ class TrafficSignClassifier:
 
         return conv1
 
-    def define_metrics(self, labels):
+    def define_metrics(self):
 
         self.prediction = tf.nn.softmax(self.logits)
-        self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.logits, labels))
+        self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.logits, self.labels))
 
         # Determine if the predictions are correct
-        is_correct_prediction = tf.equal(tf.argmax(self.prediction, 1), tf.argmax(labels, 1))
+        is_correct_prediction = tf.equal(tf.argmax(self.prediction, 1), tf.argmax(self.labels, 1))
         # Calculate the accuracy of the predictions
         self.accuracy = tf.reduce_mean(tf.cast(is_correct_prediction, tf.float32))
-
-    def get_number_training_samples(self):
-        """
-
-        :return:
-        """
-        return self.training_features.shape[0]
-
-    def get_number_test_samples(self):
-        """
-
-        :return:
-        """
-        return self.test_features.shape[0]
