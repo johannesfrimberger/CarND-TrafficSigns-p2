@@ -373,7 +373,7 @@ class TrafficSignClassifier:
         return (yuv / 255. * 2.) - 1.
 
     @staticmethod
-    def shift_and_rotate_image(img, shift, rotation, scale):
+    def shift_and_rotate_image(img, shift=(0, 0), rotation=0, scale=1.0):
         """
         Shift and rotate image by given coefficients
         :param img: Input image
@@ -476,10 +476,10 @@ class TrafficSignClassifier:
             for img_number in image_basis:
                 img = self.training_features[img_number]
 
-                shift = np.random.randint(-2, 2, (2, 1))
+                #shift = np.random.randint(-2, 2, (2, 1))
                 rot = np.random.randint(-2, 2) * 5
-                scale = float(np.random.randint(90, 110)) / 100.
-                img = self.shift_and_rotate_image(img, shift, rot, scale)
+                #scale = float(np.random.randint(90, 110)) / 100.
+                img = self.shift_and_rotate_image(img, rotation=rot)
 
                 new_labels.append(ind)
                 new_features[write_pos, :, :, :] = img
