@@ -277,9 +277,6 @@ class TrafficSignClassifier:
 
         # Launch the graph
         sess = tf.Session()
-        # Initializing the variables
-        init = tf.global_variables_initializer()
-        sess.run(init)
 
         saver = tf.train.import_meta_graph(self.save_file + '.meta')
         saver.restore(sess, tf.train.latest_checkpoint('./'))
