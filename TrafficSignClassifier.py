@@ -277,6 +277,9 @@ class TrafficSignClassifier:
 
         # Launch the graph
         sess = tf.Session()
+        # Initializing the variables
+        init = tf.global_variables_initializer()
+        sess.run(init)
 
         saver = tf.train.import_meta_graph(self.save_file + '.meta')
         saver.restore(sess, tf.train.latest_checkpoint('./'))
@@ -287,6 +290,7 @@ class TrafficSignClassifier:
 
             batch_features = self.test_features[batch_start:(batch_start + batch_size)]
             batch_labels = self.test_labels[batch_start:(batch_start + batch_size)]
+
             l, a = sess.run([self.loss, self.accuracy],
                             feed_dict={self.features: batch_features, self.labels: batch_labels, self.keep_prob: 1.0})
 
