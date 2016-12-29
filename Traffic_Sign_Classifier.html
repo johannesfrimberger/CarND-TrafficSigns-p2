@@ -17046,6 +17046,15 @@ xhhjjDHGGD8hGAflMcYYY4wxxvgJwTgojzHGGGOMMcZPCP4vPq2/NnOHXqMAAAAASUVORK5CYII=
 <div class="inner_cell">
     <div class="input_area">
 <div class=" highlight hl-ipython3"><pre><span></span><span class="c1">### The classifier is able to detect 4 out of 5 images.</span>
+<span class="c1">### Compared to the performance of the classifier on the test set the accuracy is lower for this </span>
+<span class="c1">### images, which are not part of the original dataset. As there are only 5 image in the new dataset</span>
+<span class="c1">### this drop is not significant. </span>
+<span class="c1">### Still I have doubts that the classifier would work in a real world scenario. </span>
+<span class="c1">### The digital 60 km/h sign contains the same information/shape as a regular 60 km/h sign. </span>
+<span class="c1">### This tells me that the model does not abstract the traffic signs well and tends to overfit. </span>
+<span class="c1">### Stopping the training after around 15-20 epochs already improved the performance on this sign.</span>
+<span class="c1">### Nevertheless I was impressed that the clasifier was able to detect the stop and turn sign with a </span>
+<span class="c1">### ceratinty of almost 1.0 for almost all settings (number epochs, fine tuning of layers). </span>
 </pre></div>
 
 </div>
